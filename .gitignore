@@ -1,0 +1,10 @@
+.vscode
+.idea
+
+*/bin/
+*/compiled/
+*.exe
+*.o
+
+*.pdb
+
