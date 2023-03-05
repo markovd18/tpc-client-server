@@ -1,20 +1,15 @@
 from socket import *
 import sys
 import concurrent.futures
+from shared import Error, parse_unsigned_int, MAX_DATA_LENGTH
 
-MESSAGE_LENGTH = 255
+MAX_THREAD_COUNT = 6
 
 
 class Config:
-    def __init__(self, port: int, max_threads: int) -> None:
+    def __init__(self, port: int = 8080, max_threads: int = 3) -> None:
         self.port = port
         self.max_threads = max_threads
-
-
-class Error:
-    def __init__(self, code: int, message: str) -> None:
-        self.code = code
-        self.message = message
 
 
 def parse_config(args: list[str]) -> tuple[Config | None, Error | None]:
@@ -28,39 +23,58 @@ def parse_config(args: list[str]) -> tuple[Config | None, Error | None]:
         is returned when there is an error while parsing the arguments or they are of invalid value. If parsing succeeded,
         error is ``None`` and ``Config`` object is present.
     """
-    print("mam parametry: {}".format(str(args)))
-    if len(args) < 3:
-        return [
+    print("Parsing parameters: {}".format(str(args)))
+    args_len = len(args)
+    if args_len < 2:
+        print("Initiating with default configuration...")
+        return (Config(), None)
+
+    port, port_success = parse_unsigned_int(args[1])
+    if args_len < 3:
+        return (
+            (Config(port=port), None)
+            if port_success
+            else (None, Error(code=1, message="Port has to be an unsigned integer."))
+        )
+
+    max_threads, max_threads_success = parse_unsigned_int(args[2])
+    if not max_threads_success:
+        return (
             None,
-            Error(code=1, message="musis predat port a pocet vlaken jako parametry"),
-        ]
+            Error(code=1, message="Thread count has to be an unsigned integer."),
+        )
 
-    string_port = args[1]
-    string_max_threads = args[2]
-    if not string_port.isnumeric() or not string_max_threads.isnumeric():
-        return [
-            -1,
-            Error(code=2, message="musis zadat port i vlakna nezaporny cely cislo"),
-        ]
+    if max_threads > MAX_THREAD_COUNT:
+        print(
+            "WARNING: Maximum number of allowed threads is {}, falling back this value.".format(
+                MAX_THREAD_COUNT
+            )
+        )
+        max_threads = MAX_THREAD_COUNT
 
-    port = int(string_port)
-    max_threads = int(string_max_threads)
-    print("zadany port: {}, pocet vclaken: {}".format(port, max_threads))
-
-    return [Config(port=port, max_threads=max_threads), None]
+    return (
+        (Config(port=port, max_threads=max_threads), None)
+        if max_threads_success
+        else (
+            None,
+            Error(code=1, message="Thread count has to be an unsigned integer."),
+        )
+    )
 
 
 def process_message(connection: socket):
-    data = connection.recv(MESSAGE_LENGTH)
-    if not data:
-        connection.close()
-        return 1
+    with connection:
+        data = connection.recv(MAX_DATA_LENGTH)
+        if not data:
+            return 1
 
-    print("received message: {}".format(data.decode()))
-    reversed_message = data[::-1]  # decoding and reversing the message
-    connection.send(reversed_message)
-    connection.close()
-    return 0
+        message_length = data[0:1]  # slice of single byte - message length
+        message = data[1:]  # first byte is message length which
+        print("received message: {}".format(message))
+        reversed_message = message[::-1]  # reversing the message
+        print("sending back message: {}".format(reversed_message))
+        connection.send(message_length + reversed_message)
+        return 0
 
 
 def run(config: Config):
@@ -68,7 +82,11 @@ def run(config: Config):
         s = socket(AF_INET, SOCK_STREAM)
         s.bind(("127.0.0.1", config.port))
         s.listen(0)
-
+        print(
+            "Listening on port '{}'.\nMaximum number of threads is set to {}.".format(
+                config.port, config.max_threads
+            )
+        )
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=config.max_threads
         ) as executor:
@@ -79,9 +97,9 @@ def run(config: Config):
                 executor.submit(process_message, connection)
 
 
-port, error = parse_config(sys.argv)
+config, error = parse_config(sys.argv)
 if error:
     print(error.message)
     exit(error.code)
 
-run(port)
+run(config)
