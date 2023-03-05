@@ -52,14 +52,7 @@ def parse_config(args: list[str]) -> tuple[Config | None, Error | None]:
         )
         max_threads = MAX_THREAD_COUNT
 
-    return (
-        (Config(port=port, max_threads=max_threads), None)
-        if max_threads_success
-        else (
-            None,
-            Error(code=1, message="Thread count has to be an unsigned integer."),
-        )
-    )
+    return (Config(port=port, max_threads=max_threads), None)
 
 
 def process_message(connection: socket):
